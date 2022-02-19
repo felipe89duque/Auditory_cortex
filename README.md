@@ -23,3 +23,6 @@ s = s_tuning_curve(s,s_params);
 [t,E,I,x,y] = solve_complex_stimuli(start_time, durations, s, params, e_E, e_I);  
 E_col_avg = mean(E,3); % Average activity per column  
 plot(t,E_col_avg(:,8));   
+
+![example plot](https://github.com/felipe89duque/Auditory_cortex/blob/main/example.png)
+
