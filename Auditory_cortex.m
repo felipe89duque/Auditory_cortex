@@ -1,20 +1,20 @@
-clear all; clc; close all;
+clear variables; clc; close all;
 
 % Model of auditory primary cortex A1, following
 % Loebel et al.(2007)
 % https://doi.org/10.3389/neuro.01.1.1.015.2007
 
-%% Parameters
+%% 1. Parameters
 columns = 15;
 cells_per_column = 200;
 N_E = 100;
 N_I = cells_per_column - N_E;
 
-Tau_E = 0.001; % s
-Tau_I = 0.001; % s
+Tau_E = 0.001; % [s]
+Tau_I = 0.001; % [s]
 
-Tau_ref_E = 3*10^(-3); % s
-Tau_ref_I = 3*10^(-3); % s
+Tau_ref_E = 3*10^(-3); % [s]
+Tau_ref_I = 3*10^(-3); % [s]
 
 J_EE = [0.015,0.045,6,0.045,0.015]; % index goes from -2 to 2
 J_IE = [0.0015,0.0035,0.5,0.0035,0.0015];
@@ -23,9 +23,19 @@ J_II = -0.5;
 
 % synaptic resources
 U = 0.5;
-Tau_rec = 0.8; % s
+Tau_rec = 0.8; % [s]
 
-%% Compact all parameters
+% background activity
+e_max = 10; % [Hz]
+e_min = -10; % [Hz]
+
+% stimulus
+alpha = 2;
+lambda_c = 0.25;
+delta_left = 5;
+delta_right= 5;
+
+%% 1.1. Compress all parameters into a couple of variables
 params.N_E = N_E;
 params.N_I = N_I;
 params.columns = columns;
@@ -40,14 +50,15 @@ params.J_II = J_II;
 params.U = U;
 params.Tau_rec = Tau_rec;
 
-%% External input
-% background activity
-e_max = 10; % Hz
-e_min = -10; % Hz
+s_params.alpha = alpha;
+s_params.lambda_c = lambda_c;
+s_params.delta_left = delta_left;
+s_params.delta_right= delta_right;
 
+%% 1.2. External input
 % Create background noise
-e_E = zeros(N_E,columns); % Hz
-e_I = zeros(N_I,columns); % Hz
+e_E = zeros(N_E,columns); % [Hz]
+e_I = zeros(N_I,columns); % [Hz]
 
 rng('default');
 for ii = 1:columns
@@ -68,25 +79,19 @@ for ii = 1:columns
     e_I(:,ii) = sort(actual_eI);
 end
 
-
-% stimulus
-s_params.alpha = 2;
-s_params.lambda_c = 0.25;
-s_params.delta_left = 5;
-s_params.delta_right= 5;
-
 %% Figure 2
+% figure();
 % start_time = 0.1; % s 
 % stimuli_durations = [0.4]; % how long each stimulus lasts
 % s = zeros(max(size(stimuli_durations)),columns);
 % s(1,:) = [0,0,0,0,0,0,0,4,0,0,0,0,0,0,0];
-% s = compute_s_tuning_curve(s,s_params);
+% s = s_tuning_curve(s,s_params);
 % 
 % [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
 % % plot average activity per column
 % E_col_avg = mean(E,3);
 % 
-% t = 1000*(t-start_time); % scale to milliseconds, and offset so that the first stimulus is at t=0
+% %t = 1000*(t-start_time); % scale to milliseconds, and offset so that the first stimulus is at t=0
 % max_amplitude = max(E_col_avg,[],'all');
 % for col =6:10
 %     subplot(3,5,col-5);
@@ -104,6 +109,7 @@ s_params.delta_right= 5;
 
 
 %% Figure 3
+% figure();
 % start_time = 0.025; % s 
 % stimuli_durations = [0.075]; % how long each stimulus lasts
 % s = zeros(max(size(stimuli_durations)),columns);
@@ -112,7 +118,7 @@ s_params.delta_right= 5;
 % max_input = 8;
 % for ii = min_input:max_input % arbitrary increasing stimulus
 %     s(1,:) = [0,0,0,0,0,0,0,ii,0,0,0,0,0,0,0];
-%     s = compute_s_tuning_curve(s,s_params);
+%     s = s_tuning_curve(s,s_params);
 % 
 %     [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
 %     % average activity per column
@@ -137,44 +143,124 @@ s_params.delta_right= 5;
 % end
 
 %% Figure 4
+% figure();
+% start_time = 0; % s 
+% stimuli_durations = [0.075]; % how long each stimulus lasts
+% 
+% max_amp = 10;
+% step = 1;
+% for tone_freq = 8:2:12
+%     t_peak_vec = zeros(1,1/step*max_amp);
+%     cont = 1;
+%     for tone_amp = 1:step:max_amp
+%         s = zeros(max(size(stimuli_durations)),columns);
+%         s(1,tone_freq) = tone_amp;
+%         s = s_tuning_curve(s,s_params);
+%         [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
+%         % average activity per column
+%         E_col_avg = mean(E,3);
+%         I_col_avg = mean(I,3);
+%         
+%         E_col8 = E_col_avg(:,8);
+%         I_col8 = I_col_avg(:,8);
+%         
+%         [~,E_indices]=findpeaks(E_col8,'MinPeakHeight', 15); %Completely arbitrary threshold O_O
+%         [~,I_indices]=findpeaks(I_col8,'MinPeakHeight', 15);         
+%         time_E_peak = t(E_indices);
+%         time_I_peak = t(I_indices);
+%         
+%         if isempty(time_E_peak)
+%             t_peak_vec(cont) = nan;
+%         else
+%             t_peak_vec(cont) = time_E_peak;            
+%         end
+%         cont = cont+1;
+%     end
+%     hold on;
+%     subplot(3,1,3);
+%     plot(1:step:max_amp,1000*t_peak_vec,'.k');
+% end
+% 
+% ylim([0,40]);
+% xlim([0,10]);
+% 
+% subplot(3,1,1);
+% s = zeros(max(size(stimuli_durations)),columns);
+% s(1,8) = 2; % Weak input
+% s = s_tuning_curve(s,s_params);
+% [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
+% % average activity per column
+% E_col_avg = mean(E,3);
+% I_col_avg = mean(I,3);
+% E_col8 = E_col_avg(:,8);
+% I_col8 = I_col_avg(:,8);
+% plot(1000*t,E_col8,'k');
+% hold on;
+% plot(1000*t,I_col8,'k--');
+% 
+% subplot(3,1,2);
+% s = zeros(max(size(stimuli_durations)),columns);
+% s(1,8) = 8; % Strong input
+% s = s_tuning_curve(s,s_params);
+% [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
+% % average activity per column
+% E_col_avg = mean(E,3);
+% I_col_avg = mean(I,3);
+% E_col8 = E_col_avg(:,8);
+% I_col8 = I_col_avg(:,8);
+% plot(1000*t,E_col8,'k');
+% hold on;
+% plot(1000*t,I_col8,'k--');
+
+%% little test: shows x recovering between 2 short stimuli to column 8
+% % It's to show that x recovers completely after 5*Tau_rec 
+% figure();
+% start_time = 0.01; % s 
+% stimulus_time = 0.075;
+% stimuli_durations = [stimulus_time,5*Tau_rec,stimulus_time]; % how long each stimulus lasts
+% s = zeros(max(size(stimuli_durations)),columns);
+% s(1,8) = 9; 
+% s(2,8) = 0; 
+% s(3,8) = 9; 
+% s = s_tuning_curve(s,s_params);
+% [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
+% E_col_avg = mean(E,3);
+% E_col8 = E_col_avg(:,8);
+% x_col_avg = mean(x,3);
+% x_col8 = x_col_avg(:,8);
+% subplot(2,1,1);
+% plot(1000*t,E_col8,'k');
+% subplot(2,1,2);
+% plot(1000*t,x_col8,'k');
+
+%% Figure 5
+figure();
+max_input = 9; % maximum input stimulus to simulate
 start_time = 0; % s 
-stimuli_durations = [0.075]; % how long each stimulus lasts
+stimulus_time = 0.075;
+stimulus_recovery_pair = [stimulus_time,5*Tau_rec];
+stimuli_durations = repmat(stimulus_recovery_pair,1,max_input); % a train of stimulus + rest
 
-max_amp = 10;
-step = 1;
-for tone_freq = 8:2:12
-    t_peak_vec = zeros(1,1/step*max_amp);
-    cont = 1;
-    for tone_amp = 1:step:max_amp
-        s = zeros(max(size(stimuli_durations)),columns);
-        s(1,tone_freq) = tone_amp;
-        s = compute_s_tuning_curve(s,s_params);
-        [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);
-        % average activity per column
-        E_col_avg = mean(E,3);
-        I_col_avg = mean(I,3);
-        
-        E_col8 = E_col_avg(:,8);
-        I_col8 = I_col_avg(:,8);
-        
-        [~,E_indices]=findpeaks(E_col8,'MinPeakHeight', 15); %Completely arbitrary threshold O_O
-        [~,I_indices]=findpeaks(I_col8,'MinPeakHeight', 15);         
-        time_E_peak = t(E_indices);
-        time_I_peak = t(I_indices);
-        
-        if isempty(time_E_peak)
-            t_peak_vec(cont) = nan;
-        else
-            t_peak_vec(cont) = time_E_peak;            
-        end
-        cont = cont+1;
-    end
-    hold on;
-    plot(1:step:max_amp,1000*t_peak_vec,'.k');
+frequency_tuning_curve = zeros(columns,1);
+for column = 1:columns
+    s = zeros(max(size(stimuli_durations)),columns);
+    s(1:2:size(s,1),column) = 1:max_input; % train of stimulus + rest, of increasing amplitude
+    s = s_tuning_curve(s,s_params);
+    [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I);    
+    E_col_avg = mean(E,3);
+    E_col8 = E_col_avg(:,8);
+    [~,E_indices]=findpeaks(E_col8,'MinPeakHeight', 15); %Completely arbitrary threshold O_O
+    
+    % Find what stimulus was being presented at t(min_peak_index)
+    if size(E_indices)>=1
+       min_peak_index = min(E_indices); 
+       input_threshold = ceil(t(min_peak_index)/(stimulus_time + 5*Tau_rec));
+       frequency_tuning_curve(column) = input_threshold;
+    else
+        frequency_tuning_curve(column) = nan;
+    end   
 end
-
-ylim([0,40]);
-xlim([0,10]);
+plot(frequency_tuning_curve,'k');
 %% Functions
 function [t_vec,E,I,x,y] = solve_complex_stimuli(start_time,dur_vec,s_matrix,params,e_E,e_I)
 % Solve the auditory cortex system of ODEs for an arbitrary train of
@@ -381,7 +467,7 @@ function [E,I,x,y] = reshape_X(X,order,params)
     x = permute(x,order);
     y = permute(y,order);
 end
-function s = compute_s_tuning_curve(s,s_params)
+function s = s_tuning_curve(s,s_params)
     columns = size(s,2);
     alpha = s_params.alpha;
     lambda_c = s_params.lambda_c;
