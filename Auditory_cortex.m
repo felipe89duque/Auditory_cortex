@@ -293,6 +293,59 @@ warning('on','all');
 % ylim([0,9]);
 % xlim([1,15]);
 % warning('on','all');
+
+%% Figure 7 (Issy Code)
+figure();
+start_time = 0.025; % seconds to wait before first stimulus
+time_at_end = 0.05; % seconds to wait after last stimulus
+
+interstimulus_intervals = params.Tau_rec.*[1/8, 1/4, 1/2, 1, 2, 4]; % the sequence of interstimulus intervals to try
+
+for i = 1:length(interstimulus_intervals)
+    
+    isi = interstimulus_intervals(i);
+    stimuli_durations = [0.05, isi, 0.05, time_at_end]; % how long each stimulus lasts (i.e. there are 4 phases of stimulus). Each tone is provided for 0.05 seconds as per the caption in Figure 6A ("50 ms duration, amplitude of 10.."). The time between the tones is the ISI (interstimulus interval). At the end have a bit of time to see how the second tone affects activity.
+    s = zeros(max(size(stimuli_durations)),params.columns); % empty stimulus matrix
+    s(1,:) = [0,0,0,10,0,0,0,0,0,0,0,0,0,0,0]; % first phase is tone of amplitude 10 at the 4th column, 0 everywhere else (First tone, "Mask")
+    s(2,:) = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; % second phase is 0 everywhere (Interstimulus Interval)
+    s(3,:) = [0,0,0,10,0,0,0,0,0,0,0,0,0,0,0]; % third phase is tone of amplitude 10 at the 4th column, 0 everywhere else (Second tone, "Probe")
+    s(4,:) = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]; % fourth phase is 0 everywhere
+
+    s = s_tuning_curve(s,s_params); % spread the pure tone across all the columns exponentially
+ 
+    [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I,E0,I0,x0,y0); % Run the ODE
+    E_col_avg = mean(E,3); % average activity per column
+    x_axis = 1:size(E_col_avg,2)+1; %columns (+1 so that the last column appears interpolated from last_column to last_column+1)
+    y_axis = t;
+    [X_axis,Y_axis] = meshgrid(x_axis,y_axis); % distribute the results evenly
+    subplot(7,1,7-i); % fill in the (7-i)-th row of the subplot
+    grid off;
+    surf(X_axis-0.5,Y_axis,cat(2,E_col_avg,zeros(size(t,1),1)),'edgecolor','none'); % draw the surface (i.e. colour) over
+    xlim([0.5,15.5]); 
+    ylim([stimuli_durations(1) + stimuli_durations(2),start_time+sum(stimuli_durations)]); % only show the results in the last two periods (i.e. after the ISI)
+    xticks([]);
+    colorbar;
+    caxis([0 70]) % max colour scaled to 70Hz as in paper
+    colormap('jet')
+    title(['ISI = ', num2str(isi), 's'])
+    view(2); % show the color map in 2 dimensions
+    %subplot(max_input+1,1,max_input+1);
+    %plot(1:columns,s);
+    %xlim([0.5,15.5]);
+    %xticks([1:columns]);
+    hold on;
+end
+
+subplot(7,1,7); % plot the initial tone response at the very bottom
+grid off;
+surf(X_axis-0.5,Y_axis,cat(2,E_col_avg,zeros(size(t,1),1)),'edgecolor','none'); 
+xlim([0.5,15.5]);
+ylim([0,start_time+stimuli_durations(1)+time_at_end]); % only show from the start to after the first tone to show how the A1 responds to the initial tone
+xticks([]);
+colorbar;
+caxis([0 70])
+colormap('jet')
+view(2);
 %% Functions
 function [t_vec,E,I,x,y] = solve_complex_stimuli(start_time,dur_vec,s_matrix,params,e_E,e_I,E0,I0,x0,y0)
 % Solve the auditory cortex system of ODEs for an arbitrary train of
