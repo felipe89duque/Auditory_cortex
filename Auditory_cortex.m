@@ -300,7 +300,7 @@ warning('on','all');
 % warning('on','all');
 
 %% Figure 6
-Subplot A
+%Subplot A
 fig6_part1 = figure();
 start_time = 0.01; % s 
 stimulus_time = 0.05;
