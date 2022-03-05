@@ -4,61 +4,243 @@ clear variables; clc; close all;
 % Loebel et al.(2007)
 % https://doi.org/10.3389/neuro.01.1.1.015.2007
 
-%% 1. Parameters
+%% Article Figures
+% Use the function
+% plot_article_figures(fig,params,s_params,e_E,e_I,initial_conditions,E0_non_zero),
+% with fig equal the number of the figure in the article you want to plot.
+% Use fig = -1 to plot all the figures
 [params,s_params] = reset_parameters();
+[initial_conditions,e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,10,0);
+fig = 2;
+plot_article_figures(fig,params,s_params,e_E,e_I,initial_conditions,E0_non_zero);
 
-%% 1.2. External input
-% % Create background noise
-% e_E = zeros(params.N_E,params.columns); % [Hz]
-% e_I = zeros(params.N_I,params.columns); % [Hz]
-% 
-% rng('default');
-% for ii = 1:params.columns
-%     init_e_E = rand(params.N_E,1); %between (0,1)
-%     init_e_I = rand(params.N_I,1);
-%     % scale
-%     highest_eE = max(init_e_E);
-%     lowest_eE = min(init_e_E);
-%     highest_eI = max(init_e_I);
-%     lowest_eI = min(init_e_I);
-%     e_E_range = max(init_e_E) - min(init_e_E);
-%     e_I_range = max(init_e_I) - min(init_e_I);
-%     
-%     actual_eE = (1/e_E_range)*(init_e_E*(params.e_max-params.e_min)+(params.e_min*highest_eE-params.e_max*lowest_eE));
-%     actual_eI = (1/e_I_range)*(init_e_I*(params.e_max-params.e_min)+(params.e_min*highest_eI-params.e_max*lowest_eI));
-% 
-%     e_E(:,ii) = sort(actual_eE);
-%     e_I(:,ii) = sort(actual_eI);
-% end
+%% Extensions
 
-e_E = repmat(linspace(params.e_min,params.e_max,params.N_E)',1,params.columns);
-e_I = repmat(linspace(params.e_min,params.e_max,params.N_I)',1,params.columns);
+%% Effect of random seed on the initial conditions
+figure();
+[params, ~] = reset_parameters();
+seeds = 0:500;
+naturally_active_exci_neurons = zeros(length(seeds),1);
+for ii = 1:length(seeds)
+    [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,seeds(ii),0);
+    E0 = initial_conditions.E;
+    I0 = initial_conditions.I;
+    x0 = initial_conditions.x;
+    y0 = initial_conditions.y;
+    
+    amount_of_active_neurons = sum(E0(:,1) > 0);
+    naturally_active_exci_neurons(ii) = amount_of_active_neurons;
+end
+proportion_active_neurons = 100*naturally_active_exci_neurons / params.N_E;
+plot(seeds,proportion_active_neurons,'k*');
+hold on;
+mean_active_neurons = mean(proportion_active_neurons);
+std_active_neurons = std(proportion_active_neurons);
+plot(seeds,mean_active_neurons*ones(length(seeds),1),'r','LineWidth',1.5);
+plot(seeds,(mean_active_neurons - std_active_neurons)*ones(length(seeds),1),'r--','LineWidth',1.5);
+plot(seeds,(mean_active_neurons + std_active_neurons)*ones(length(seeds),1),'r--','LineWidth',1.5);
+xlabel('Random seed');
+ylabel('% of excitatory neurons stimulated');
+ylim([0,100]);
+legend('',strcat(sprintf('mean = %.2f',mean_active_neurons),'%'),strcat('standard dev. = \pm',sprintf('%.2f',std_active_neurons),'%'));
 
-%% 1.3. Create neurons
-E_ini = zeros(params.N_E,params.columns);
-I_ini = zeros(params.N_I,params.columns);
-x_ini = zeros(size(E_ini));
-y_ini = zeros(size(I_ini));
+%% Find if there is any seed for which a decreased background input lowrs the FTC (Figure 5D from article vs ours)
+warning('off','all');
+n_seeds = 500;
+max_diffs = [0,0]; % max difference between increased and decrease noise, for either case (when increased > decreased and vise versa) 
+article_seed = nan; % A seed that produces Figure 5D similar to the article's
+not_article_seed = nan;
+[params, s_params] = reset_parameters();
+start_time = 0;
+stimuli_durations = 0.05;
 
-%% 1.4. Get initial conditions
-% set stimulus to 0 and let the system converge
-X0 = [E_ini(:); I_ini(:); x_ini(:); y_ini(:)];
-t_rest = 5*params.Tau_rec;
-E0_non_zero = ones(size(E_ini));
-[t, X] = ode45(@(t,X) dXdt(t,X,params,0,e_E,e_I,E0_non_zero),[0,t_rest],X0,E0_non_zero);
+delta_e = 0.6;
+e_max_inc = params.e_max + delta_e;
+e_min_inc = params.e_min + delta_e;
+e_max_dec = params.e_max - delta_e;
+e_min_dec = params.e_min - delta_e;
+e_max_vec = [e_max_inc,e_max_dec];
+e_min_vec = [e_min_inc,e_min_dec];
+for seed = 0:n_seeds
+% Check if column 8 is more sensitive to stimulus when external noise is
+% decreased
+    inc_dec_sensitivity = zeros(1,2);
+    for ii = 1:2
+        params.e_min = e_min_vec(ii);
+        params.e_max = e_max_vec(ii);
+        [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,seed,0);
+        E0 = initial_conditions.E;
+        I0 = initial_conditions.I;
+        x0 = initial_conditions.x;
+        y0 = initial_conditions.y;
+        for input = 0.2:0.2:9
+            s = zeros(1,params.columns);
+            s(8) = input;
+            s = s_tuning_curve(s,s_params);
+            [~,E,~,~,~] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);    
+            E_col_avg = mean(E,3);
+            E_col8 = E_col_avg(:,8);
+            [~,E_indices]=findpeaks(E_col8,'MinPeakHeight', 15); %Completely arbitrary threshold O_O
 
-[E,I,x,y] = reshape_X(X,[2,3,1], params);
+            % Find if the stimulus presented caused a activation in column 8
+            if length(E_indices)>= 1
+               inc_dec_sensitivity(ii) = input;
+               break
+            end
+        end
+    end
+    % If inc_dec_sensitivity(2) < inc_dec_sensitivity(1) then the result is
+    % similar to the article's, otherwise it is the same as we got in our
+    % Figure 5.
+    if inc_dec_sensitivity(2) < inc_dec_sensitivity(1)
+        if inc_dec_sensitivity(1) - inc_dec_sensitivity(2) > max_diffs(2)
+            article_seed = seed;
+            max_diffs(2) = inc_dec_sensitivity(1) - inc_dec_sensitivity(2);
+        end
+    else
+        if inc_dec_sensitivity(2) - inc_dec_sensitivity(1) > max_diffs(1)
+            not_article_seed = seed;
+            max_diffs(1) = inc_dec_sensitivity(2) - inc_dec_sensitivity(1);
+        end
+    end
+end
 
-E0 = E(:,:,end);
-I0 = I(:,:,end);
-x0 = x(:,:,end);
-y0 = y(:,:,end);
+% Plot FTC for our results and for theirs
+if ~isnan(article_seed)
+    seeds = [not_article_seed,article_seed];
+    plot_styles = ["k","k--"];
+    plot_legends= ["Increased external noise", "Decreased external noise"];
+    for seed_index = 1:length(seeds)
+        subplot(1,2,seed_index);
+        xlim([1,params.columns]);
+        ylim([0,9]);
+        xticks(2:2:params.columns);
+        xlabel('Column index');
+        ylabel('Input amplitude needed for PS in column 8 [Hz]');
+        title(sprintf('seed = %d',seeds(seed_index)));
+        hold on;
+        for ii = 1:2
+            params.e_min = e_min_vec(ii);
+            params.e_max = e_max_vec(ii);
+            [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,seeds(seed_index),0);
+            E0 = initial_conditions.E;
+            I0 = initial_conditions.I;
+            x0 = initial_conditions.x;
+            y0 = initial_conditions.y;
+            FTC = frequency_tuning_curve(8,1,params,s_params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
+            plot(FTC,plot_styles(ii),'DisplayName',plot_legends(ii));
+            legend('-DynamicLegend');
+            legend('show');
+        end
+    end
+end
+warning('on','all');
 
-% E0_non_zero = (E0 > 0);
-E0_non_zero = ones(size(E0));
+%% Effect of the seed in inter-column excitatory spread
+figure();
+[params, s_params] = reset_parameters();
 
+
+start_time = 0.01; % s 
+stimuli_durations = 0.05; % how long each stimulus lasts
+s = zeros(length(stimuli_durations),params.columns);
+
+
+input = 4;
+seeds = 1:5;
+for seed = seeds % arbitrary increasing stimulus
+    [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,seed,0);
+    E0 = initial_conditions.E;
+    I0 = initial_conditions.I;
+    x0 = initial_conditions.x;
+    y0 = initial_conditions.y;
+    s(1,:) = [0,0,0,0,0,0,0,input,0,0,0,0,0,0,0];
+    s = s_tuning_curve(s,s_params);
+
+    [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
+    % average activity per column
+    E_col_avg = mean(E,3);
+    
+    t = 1000*t; % [ms]
+    x_axis = 1:size(E_col_avg,2)+1; %columns (+1 so that the last column appears interpolated from last_column to last_column+1)
+    y_axis = t;
+    [X_axis,Y_axis] = meshgrid(x_axis,y_axis);
+    subplot(length(seeds)+1,1,seed);
+    grid off;
+    surf(X_axis-0.5,Y_axis,cat(2,E_col_avg,zeros(size(t,1),1)),'edgecolor','none');
+    xlim([0.5,15.5]);
+    %ylim([0,start_time+stimuli_durations(1)]);
+    xticks([]);
+    title(sprintf('seed = %d',seed));
+    colorbar;
+    view(2);
+    hold on;
+end
+subplot(length(seeds)+1,1,length(seeds)+1);
+plot(1:params.columns,s);
+xlim([0.5,15.5]);
+xticks(1:params.columns);
+yticks([2,4,6]);
+xlabel('Column index');
+ylabel('Input amp.');
+%% Effect of reducing number of neurons per column
+figure();
+[params, s_params] = reset_parameters();
+cells_per_column_vec = [100,50,25,10];
+for ii = 1:length(cells_per_column_vec)
+    
+    params.cells_per_column = cells_per_column_vec(ii);
+    params.N_E = floor(params.cells_per_column/2);
+    params.N_I = params.cells_per_column - params.N_E;
+
+    [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,'default',1);
+    E0 = initial_conditions.E;
+    I0 = initial_conditions.I;
+    x0 = initial_conditions.x;
+    y0 = initial_conditions.y;
+
+    FTC = frequency_tuning_curve(8,1,params,s_params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
+    plot(FTC,'DisplayName',sprintf('Cells per column = %d',params.cells_per_column));
+    hold on;
+end
+legend()
+
+%% Effect of changing N_E/N_I ratio
+figure();
+[params, s_params] = reset_parameters();
+%N_E_vec = [0,0.2,0.5,0.7,1];
+N_E_vec = [0.2,0.5,0.7];
+for ii = 1:length(N_E_vec)
+    params.N_E = floor(params.cells_per_column*N_E_vec(ii));
+    params.N_I = params.cells_per_column - params.N_E;
+
+    [initial_conditions, e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params);
+    E0 = initial_conditions.E;
+    I0 = initial_conditions.I;
+    x0 = initial_conditions.x;
+    y0 = initial_conditions.y;
+
+    FTC = frequency_tuning_curve(8,1,params,s_params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
+    plot(FTC,'DisplayName',sprintf('N_E = %d',params.N_E));
+    hold on;
+end
+legend()
+
+%% Functions
+function plot_article_figures(fig,params,s_params,e_E,e_I,X0,E0_non_zero)
+E0 = X0.E;
+I0 = X0.I;
+x0 = X0.x;
+y0 = X0.y;
+
+if fig == -1
+   for i = 2:8
+       plot_article_figures(i,params,s_params,e_E,e_I,X0,E0_non_zero);
+   end
+end
 
 %% Figure 2
+if fig == 2
 figure();
 start_time = 0.1; % s 
 stimuli_durations = [0.4]; % how long each stimulus lasts
@@ -88,6 +270,7 @@ xticks([6,7,8,9,10]);
 xlabel('Column index');
 
 %% Figure 3
+elseif fig == 3
 figure();
 start_time = 0.025; % s 
 stimuli_durations = [0.075]; % how long each stimulus lasts
@@ -112,25 +295,30 @@ for ii = min_input:max_input % arbitrary increasing stimulus
     xlim([0.5,15.5]);
     ylim([0,start_time+stimuli_durations(1)]);
     xticks([]);
-%     colorbar;
+    colorbar off;
     view(2);
-    subplot(max_input+1,1,max_input+1);
-    plot(1:params.columns,s);
-    xlim([0.5,15.5]);
-    xticks([1:params.columns]);
+    if (mod(ii,2) == 0) & (ii < 8)
+        subplot(max_input+1,1,max_input+1);
+        plot(1:params.columns,s);
+        xlim([0.5,15.5]);
+        xticks([1:params.columns]);
+        yticks([2,4,6]);
+    end
     hold on;
 end
 
 %% Figure 4
-warning('off','all'); % To avoid getting a matlab warning when findpeaks function doesn't find any peaks
+elseif fig == 4
 figure();
 start_time = 0; % s 
-stimuli_durations = [0.075]; % how long each stimulus lasts
+stimuli_durations = [0.05]; % how long each stimulus lasts
 
 max_amp = 10;
-step = 1;
+step = 0.2;
+plot_colors = ['k','r','g'];
+color_cont = 1;
 for tone_freq = 8:2:12
-    t_peak_vec = zeros(1,1/step*max_amp);
+    t_peak_vec = zeros(1,1/step*(max_amp-1))*nan;
     cont = 1;
     for tone_amp = 1:step:max_amp
         s = zeros(max(size(stimuli_durations)),params.columns);
@@ -149,18 +337,19 @@ for tone_freq = 8:2:12
         time_E_peak = t(E_indices);
         time_I_peak = t(I_indices);
         
-        if isempty(time_E_peak)
-            t_peak_vec(cont) = nan;
-        else
-            t_peak_vec(cont) = time_E_peak;            
+        if ~isempty(time_E_peak)
+            t_peak_vec(cont) = time_E_peak;
         end
         cont = cont+1;
     end
     hold on;
     subplot(3,1,3);
-    plot(1:step:max_amp,1000*t_peak_vec,'.k');
+    plot(1:step:max_amp,1000*t_peak_vec,'Color',plot_colors(color_cont));
+    color_cont = color_cont +1;
 end
-warning('on','all');
+xlabel('Input Amplitude [Hz]');
+ylabel('Latency to response [ms]');
+legend('Stimulus at column 8','Stimulus at column 10','Stimulus at column 12');
 
 ylim([0,40]);
 xlim([0,10]);
@@ -175,9 +364,10 @@ E_col_avg = mean(E,3);
 I_col_avg = mean(I,3);
 E_col8 = E_col_avg(:,8);
 I_col8 = I_col_avg(:,8);
-plot(1000*t,E_col8,'k');
+plot(1000*t,E_col8,'k','DisplayName','Excitatory population');
 hold on;
-plot(1000*t,I_col8,'k--');
+plot(1000*t,I_col8,'k--','DisplayName','Inhibitory population');
+legend();
 
 subplot(3,1,2);
 s = zeros(max(size(stimuli_durations)),params.columns);
@@ -189,34 +379,14 @@ E_col_avg = mean(E,3);
 I_col_avg = mean(I,3);
 E_col8 = E_col_avg(:,8);
 I_col8 = I_col_avg(:,8);
-plot(1000*t,E_col8,'k');
+plot(1000*t,E_col8,'k','DisplayName','Excitatory population');
 hold on;
-plot(1000*t,I_col8,'k--');
-
-%% little test: shows x recovering between 2 short stimuli to column 8
-% It's to show that x recovers completely after 5*Tau_rec 
-figure();
-start_time = 0.01; % s 
-stimulus_time = 0.075;
-stimuli_durations = [stimulus_time,5*params.Tau_rec,stimulus_time]; % how long each stimulus lasts
-s = zeros(max(size(stimuli_durations)),params.columns);
-s(1,8) = 9; 
-s(2,8) = 0; 
-s(3,8) = 9; 
-s = s_tuning_curve(s,s_params);
-[t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
-E_col_avg = mean(E,3);
-E_col8 = E_col_avg(:,8);
-x_col_avg = mean(x,3);
-x_col8 = x_col_avg(:,8);
-subplot(2,1,1);
-plot(1000*t,E_col8,'k');
-subplot(2,1,2);
-plot(1000*t,x_col8,'k');
-
+plot(1000*t,I_col8,'k--','DisplayName','Inhibitory population');
+legend();
+xlabel('time [ms]');
 
 %% Figure 5
-warning('off','all');
+elseif fig == 5
 figure();
 %Subplot A of the article:
 [params,s_params] = reset_parameters();
@@ -283,7 +453,7 @@ legend('increased background input', 'decreased background input');
 ylim([0,9]);
 xlim([1,15]);
 xlabel('Column index');
-warning('on','all');
+
 %% test difference in time between frequency_tuning_curve and the slow version
 % warning('off','all');
 % FTC1 = frequency_tuning_curve(8,params,s_params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
@@ -300,7 +470,8 @@ warning('on','all');
 % warning('on','all');
 
 %% Figure 6
-%Subplot A
+elseif fig == 6
+% Subplot A
 fig6_part1 = figure();
 start_time = 0.01; % s 
 stimulus_time = 0.05;
@@ -398,7 +569,9 @@ xticks([0.5,1,2,4]);
 xlabel('Inter-stimulus interval [\tau_{rec}]');
 ylabel('Peak 2 / Peak 1 ratio (In column 8)');
 
+
 %% Figure 7 (Issy Code)
+elseif fig == 7
 figure();
 start_time = 0.025; % seconds to wait before first stimulus
 time_at_end = 0.05; % seconds to wait after last stimulus
@@ -445,14 +618,16 @@ grid off;
 surf(X_axis-0.5,Y_axis,cat(2,E_col_avg,zeros(size(t,1),1)),'edgecolor','none'); 
 xlim([0.5,15.5]);
 ylim([0,start_time+stimuli_durations(1)+time_at_end]); % only show from the start to after the first tone to show how the A1 responds to the initial tone
-xticks([]);
+xticks(1:params.columns);
+xlabel('Column Index');
 colorbar;
 caxis([0 70])
 colormap('jet')
 view(2);
 
+
 %% Figure 8
-warning('off','all');
+elseif fig == 8
 figure();
 [params,s_params] = reset_parameters();
 % Response to the first input
@@ -470,9 +645,11 @@ ylim([0,9]);
 xlim([1,15]);
 ylabel('Input amplitude [Hz]');
 xlabel('Column index');
-warning('on','all');
 
-%% Functions
+else 
+    disp(strcat('No figure ',sprintf('%d',fig),' to plot'));
+end
+end
 function [t_vec,E,I,x,y] = solve_complex_stimuli(start_time,dur_vec,s_matrix,params,e_E,e_I,E0,I0,x0,y0,E0_non_zero)
 % Solve the auditory cortex system of ODEs for an arbitrary train of
 % stimuli (s_matrix).
@@ -713,6 +890,7 @@ function FTC = frequency_tuning_curve(col_to_tune,peak_number,params,s_params,e_
 % Computes the frequency tuning curve for a particular column, taking into account
 % the known nature of a FCT (decreasing for columns < col_to_tune, and
 % increasing for columns > col_to_tune)
+    warning('off','all'); % To avoid getting a matlab warning when findpeaks function doesn't find any peaks
     columns = params.columns;
     max_input = 9; % maximum input stimulus to simulate
     step_size = 0.2;
@@ -806,10 +984,69 @@ function FTC = frequency_tuning_curve(col_to_tune,peak_number,params,s_params,e_
             [slope,intercept] = find_linear_params(x1,y1,x2,y2);
         end
     end
+    warning('on','all'); % To avoid getting a matlab warning when findpeaks function doesn't find any peaks
 end
 function [slope, intercept] = find_linear_params(x1,y1,x2,y2)
     slope = (y2 - y1)/(x2 - x1);
     intercept = (y1*x2 - y2*x1)/(x2-x1);
+end
+function [initial_conditions,e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,seed,stimulate_all)
+    %% 1.2. External input
+    % Create background noise
+    % seed: Random seed to generate external noise
+    % stimulate_all: binary (0-1) variable that defines if all neurons
+    % will receive stimulus, or onlty the naturally active ones
+    
+    rng(seed);
+    init_e_E = rand(params.N_E,1); %between (0,1)
+    init_e_I = rand(params.N_I,1);
+    % scale
+    highest_eE = max(init_e_E);
+    lowest_eE = min(init_e_E);
+    highest_eI = max(init_e_I);
+    lowest_eI = min(init_e_I);
+    e_E_range = max(init_e_E) - min(init_e_E);
+    e_I_range = max(init_e_I) - min(init_e_I);
+
+    actual_eE = (1/e_E_range)*(init_e_E*(params.e_max-params.e_min)+(params.e_min*highest_eE-params.e_max*lowest_eE));
+    actual_eI = (1/e_I_range)*(init_e_I*(params.e_max-params.e_min)+(params.e_min*highest_eI-params.e_max*lowest_eI));
+
+    e_E_col = sort(actual_eE);
+    e_I_col = sort(actual_eI);
+    
+    e_E = repmat(e_E_col,1,params.columns);
+    e_I = repmat(e_I_col,1,params.columns);
+
+%     e_E = repmat(linspace(params.e_min,params.e_max,params.N_E)',1,params.columns);
+%     e_I = repmat(linspace(params.e_min,params.e_max,params.N_I)',1,params.columns);
+
+    %% 1.3. Create neurons
+    E_ini = zeros(params.N_E,params.columns);
+    I_ini = zeros(params.N_I,params.columns);
+    x_ini = zeros(size(E_ini));
+    y_ini = zeros(size(I_ini));
+
+    %% 1.4. Get initial conditions
+    % set stimulus to 0 and let the system converge
+    X0 = [E_ini(:); I_ini(:); x_ini(:); y_ini(:)];
+    t_rest = 5*params.Tau_rec;
+    E0_non_zero = ones(size(E_ini));
+    [t, X] = ode45(@(t,X) dXdt(t,X,params,0,e_E,e_I,E0_non_zero),[0,t_rest],X0,E0_non_zero);
+
+    [E,I,x,y] = reshape_X(X,[2,3,1], params);
+
+    E0 = E(:,:,end);
+    I0 = I(:,:,end);
+    x0 = x(:,:,end);
+    y0 = y(:,:,end);
+
+    initial_conditions.E = E0;
+    initial_conditions.I = I0;
+    initial_conditions.y = y0;
+    initial_conditions.x = x0;
+    % Decide if you want to stimulate only neurons that are naturally excited
+    % or all neurons in the network.
+    E0_non_zero = ones(size(initial_conditions.E)) - (E0 <= 0)*(1-stimulate_all);
 end
 function [params, s_params] = reset_parameters()
     columns = 15;
@@ -843,6 +1080,7 @@ function [params, s_params] = reset_parameters()
     delta_right= 5;
 
     %% 1.1. Compress all parameters into a couple of variables
+    params.cells_per_column = cells_per_column;
     params.N_E = N_E;
     params.N_I = N_I;
     params.columns = columns;
