@@ -10,7 +10,9 @@ clear variables; clc; close all;
 % with fig equal the number of the figure in the article you want to plot.
 % Use fig = -1 to plot all the figures
 [params,s_params] = reset_parameters();
-[initial_conditions,e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,10,0);
+rnd_seed = 10;
+stimulate_all_neurons = 0;
+[initial_conditions,e_E,e_I,E0_non_zero] = get_initial_conditions_and_noise(params,rnd_seed,stimulate_all_neurons);
 fig = 2;
 plot_article_figures(fig,params,s_params,e_E,e_I,initial_conditions,E0_non_zero);
 
@@ -255,19 +257,30 @@ E_col_avg = mean(E,3);
 t = 1000*(t-start_time); % scale to milliseconds, and offset so that the first stimulus is at t=0
 max_amplitude = max(E_col_avg,[],'all');
 for col =6:10
+    %subplot(3,5,col+5);
     subplot(3,5,col-5);
-    plot(t,E_col_avg(:,col),'k','DisplayName',sprintf('col %d',col));
+    plot(t,E_col_avg(:,col),'k');
     ylim([0,max_amplitude]);
+    if col==6
+        ylabel('Network activity [Hz]','FontSize',14,'interpreter','latex');
+    end
     
+    %subplot(3,5,col);
     subplot(3,5,col);
     plot(t,s(col)*heaviside(t),'k'); % The temporal envelope zeta used, is the heaviside function
+    if col==8
+       xlabel('Time [ms]','FontSize',14,'interpreter','latex');
+    end
     ylim([0,max(s)+1]);
     
 end
+
+%subplot(3,5,[1,2,3,4,5]);
 subplot(3,5,[11,12,13,14,15]);
 plot(6:10,s(6:10),'k');
 xticks([6,7,8,9,10]);
-xlabel('Column index');
+xlabel('Column index','FontSize',14,'interpreter','latex');
+ylabel('Input amplitude [Hz]','FontSize',14,'interpreter','latex');
 
 %% Figure 3
 elseif fig == 3
@@ -318,7 +331,7 @@ step = 0.2;
 plot_colors = ['k','r','g'];
 color_cont = 1;
 for tone_freq = 8:2:12
-    t_peak_vec = zeros(1,1/step*(max_amp-1))*nan;
+    t_peak_vec = zeros(2,1/step*(max_amp-1))*nan; % row 1 for excitatory, row 2 for inhibitory peaks
     cont = 1;
     for tone_amp = 1:step:max_amp
         s = zeros(max(size(stimuli_durations)),params.columns);
@@ -333,23 +346,27 @@ for tone_freq = 8:2:12
         I_col8 = I_col_avg(:,8);
         
         [~,E_indices]=findpeaks(E_col8,'MinPeakHeight', 15); %Completely arbitrary threshold O_O
-        [~,I_indices]=findpeaks(I_col8,'MinPeakHeight', 15);         
+        [~,I_indices]=findpeaks(I_col8,'MinPeakHeight', 10);         
         time_E_peak = t(E_indices);
         time_I_peak = t(I_indices);
         
         if ~isempty(time_E_peak)
-            t_peak_vec(cont) = time_E_peak;
+            t_peak_vec(1,cont) = time_E_peak;
+        end
+        if ~isempty(time_I_peak)
+            t_peak_vec(2,cont) = time_I_peak;
         end
         cont = cont+1;
     end
-    hold on;
     subplot(3,1,3);
-    plot(1:step:max_amp,1000*t_peak_vec,'Color',plot_colors(color_cont));
+    hold on;
+    plot(1:step:max_amp,1000*t_peak_vec(1,:),'Color',plot_colors(color_cont));
+    plot(1:step:max_amp,1000*t_peak_vec(2,:),'.','Color',plot_colors(color_cont));
     color_cont = color_cont +1;
 end
 xlabel('Input Amplitude [Hz]');
 ylabel('Latency to response [ms]');
-legend('Stimulus at column 8','Stimulus at column 10','Stimulus at column 12');
+legend('Stimulus at column 8','','Stimulus at column 10','','Stimulus at column 12');
 
 ylim([0,40]);
 xlim([0,10]);
@@ -489,8 +506,15 @@ for ii = 1:length(ISI_vec)
     [t,E,I,x,y] = solve_complex_stimuli(start_time,stimuli_durations,s,params,e_E,e_I,E0,I0,x0,y0,E0_non_zero);
     E_col_avg = mean(E,3);
     E_col8 = E_col_avg(:,8);
+    x_col_avg = mean(x,3);
+    x_col8 = x_col_avg(:,8);
     subplot(length(ISI_vec),1,ii);
+    colororder({'k','r'})
+    hold on;
+    yyaxis left;
     plot((t-start_time)/params.Tau_rec,E_col8,'k');
+    yyaxis right;
+    plot((t-start_time)/params.Tau_rec,x_col8,'r--');
     xticks([0,0.5,1,2,4]);
     xlim([-params.Tau_rec/2,6*params.Tau_rec]);
 
@@ -499,8 +523,11 @@ superplot = axes(fig6_part1,'visible','off');
 superplot.Title.Visible='on';
 superplot.XLabel.Visible='on';
 superplot.YLabel.Visible='on';
-xlabel(superplot,'Inter-stimulus interval [\tau_{rec}]');
-ylabel(superplot,'Network activity [Hz]');
+xlabel(superplot,'Inter-stimulus interval [$\tau_{rec}$]','FontSize',14,'interpreter','latex');
+ylabel(superplot,'Network activity [Hz]','FontSize',14,'interpreter','latex');
+yyaxis(superplot,'right')
+superplot.YLabel.Visible='on';
+ylabel(superplot,'Mean synaptic resources','Color','r','FontSize',14,'interpreter','latex');
 
 % Subplot B
 fig6_part2 = figure();
@@ -531,10 +558,10 @@ for amp = amplitudes % Plot the ratio P2/P1 for several stimuli amplitudes
     hold on;
     plot(ISI_vec,P2P1_vec(amp,:),'DisplayName',strcat('Input Amplitude = ',sprintf('%d [Hz]',amp)));
 end
-legend();
+legend('Interpreter','latex','Location','best','FontSize',10);
 xticks([0.5,1,2,4]);
-xlabel('Inter-stimulus interval [\tau_{rec}]');
-ylabel('Peak 2 / Peak 1 ratio');
+xlabel('Inter-stimulus interval [$\tau_{rec}$]','FontSize',14,'interpreter','latex');
+ylabel('Peak 2 / Peak 1 ratio','FontSize',14,'interpreter','latex');
 
 % Subplot C
 subplot(2,1,2);
@@ -564,10 +591,10 @@ for col = cols % Plot the ratio P2/P1 for response of column 8 to other columns 
     hold on;
     plot(ISI_vec,P2P1_vec(col,:),'DisplayName',strcat('Column stimulated = ',sprintf('%d [Hz]',col)));
 end
-legend();
+legend('Interpreter','latex','Location','best','FontSize',10);
 xticks([0.5,1,2,4]);
-xlabel('Inter-stimulus interval [\tau_{rec}]');
-ylabel('Peak 2 / Peak 1 ratio (In column 8)');
+xlabel('Inter-stimulus interval [$\tau_{rec}$]','FontSize',14,'interpreter','latex');
+ylabel('Peak 2 / Peak 1 ratio (In column 8)','FontSize',14,'interpreter','latex');
 
 
 %% Figure 7 (Issy Code)
@@ -601,10 +628,11 @@ for i = 1:length(interstimulus_intervals)
     xlim([0.5,15.5]); 
     ylim([stimuli_durations(1) + stimuli_durations(2),start_time+sum(stimuli_durations)]); % only show the results in the last two periods (i.e. after the ISI)
     xticks([]);
-    colorbar;
-    caxis([0 70]) % max colour scaled to 70Hz as in paper
-    colormap('jet')
-    title(['ISI = ', num2str(isi), 's'])
+    
+    title(['ISI = ', num2str(isi), 's'],'FontSize',12,'interpreter','latex')
+    if i==3
+       ylabel('Time [ms]','FontSize',14,'interpreter','latex'); 
+    end
     view(2); % show the color map in 2 dimensions
     %subplot(max_input+1,1,max_input+1);
     %plot(1:columns,s);
@@ -619,7 +647,7 @@ surf(X_axis-0.5,Y_axis,cat(2,E_col_avg,zeros(size(t,1),1)),'edgecolor','none');
 xlim([0.5,15.5]);
 ylim([0,start_time+stimuli_durations(1)+time_at_end]); % only show from the start to after the first tone to show how the A1 responds to the initial tone
 xticks(1:params.columns);
-xlabel('Column Index');
+xlabel('Column Index','FontSize',14,'interpreter','latex');
 colorbar;
 caxis([0 70])
 colormap('jet')
